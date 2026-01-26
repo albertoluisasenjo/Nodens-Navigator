@@ -192,6 +192,16 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f2027 0%, #203a43 100%);
     }
+    
+    /* Day patterns table styling */
+    .stSelectbox {
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Compact pattern display */
+    div[data-testid="column"] p {
+        margin-bottom: 0.25rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -465,15 +475,67 @@ with st.sidebar:
     
     # Day patterns
     st.subheader("📆 Day Patterns")
+    
+    # Initialize patterns in session state
+    if 'day_patterns' not in st.session_state:
+        st.session_state.day_patterns = [
+            {'outbound': 'Fri', 'return': 'Sun'},
+            {'outbound': 'Thu', 'return': 'Mon'}
+        ]
+    
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     
-    with st.expander("Weekend Short", expanded=False):
-        ws_out = st.multiselect("Outbound days", day_names, default=["Fri"], key="ws_out")
-        ws_ret = st.multiselect("Return days", day_names, default=["Sun"], key="ws_ret")
+    # Display patterns table
+    st.markdown("**Pattern | Outbound → Return**")
     
-    with st.expander("Weekend Long", expanded=False):
-        wl_out = st.multiselect("Outbound days", day_names, default=["Thu"], key="wl_out")
-        wl_ret = st.multiselect("Return days", day_names, default=["Mon"], key="wl_ret")
+    patterns_to_remove = []
+    for idx, pattern in enumerate(st.session_state.day_patterns):
+        col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
+        
+        with col1:
+            outbound = st.selectbox(
+                "Out",
+                day_names,
+                index=day_names.index(pattern['outbound']),
+                key=f"out_{idx}",
+                label_visibility="collapsed"
+            )
+            st.session_state.day_patterns[idx]['outbound'] = outbound
+        
+        with col2:
+            return_day = st.selectbox(
+                "Ret",
+                day_names,
+                index=day_names.index(pattern['return']),
+                key=f"ret_{idx}",
+                label_visibility="collapsed"
+            )
+            st.session_state.day_patterns[idx]['return'] = return_day
+        
+        with col3:
+            pattern_name = f"{outbound[:3]}-{return_day[:3]}"
+            st.markdown(f"**{pattern_name}**")
+        
+        with col4:
+            if st.button("🗑️", key=f"del_{idx}", help="Remove pattern"):
+                patterns_to_remove.append(idx)
+    
+    # Remove patterns
+    for idx in reversed(patterns_to_remove):
+        st.session_state.day_patterns.pop(idx)
+    
+    # Add new pattern button
+    if st.button("➕ Add Pattern", use_container_width=True):
+        st.session_state.day_patterns.append({'outbound': 'Fri', 'return': 'Sun'})
+        st.rerun()
+    
+    # Build DAYS_IN_WEEK dict from patterns
+    DAYS_IN_WEEK = {}
+    for idx, pattern in enumerate(st.session_state.day_patterns):
+        out_idx = day_names.index(pattern['outbound'])
+        ret_idx = day_names.index(pattern['return'])
+        pattern_name = f"{pattern['outbound'][:3]}-{pattern['return'][:3]}"
+        DAYS_IN_WEEK[pattern_name] = [f"{out_idx}-{ret_idx}"]
     
     # Flight options
     st.subheader("✈️ Flight Options")
@@ -481,52 +543,67 @@ with st.sidebar:
     
     # Time preferences (simplified)
     st.subheader("🕐 Time Preferences")
-    outbound_time = st.select_slider(
-        "Outbound time",
-        options=["Any time", "Morning", "Afternoon", "Evening"],
-        value="Any time"
+    
+    st.markdown("**Outbound Flight Times**")
+    outbound_time_range = st.slider(
+        "Outbound hours",
+        min_value=0,
+        max_value=24,
+        value=(9, 23),
+        step=1,
+        format="%d:00",
+        label_visibility="collapsed"
     )
-    return_time = st.select_slider(
-        "Return time",
-        options=["Any time", "Morning", "Afternoon", "Evening"],
-        value="Any time"
+    
+    st.markdown("**Return Flight Times**")
+    return_time_range = st.slider(
+        "Return hours",
+        min_value=0,
+        max_value=24,
+        value=(13, 21),
+        step=1,
+        format="%d:00",
+        label_visibility="collapsed"
     )
-
-# Convert time preferences to tuples
-time_mapping = {
-    "Any time": (0, 6, 12, 24),
-    "Morning": (6, 6, 12, 12),
-    "Afternoon": (12, 12, 18, 18),
-    "Evening": (18, 18, 24, 24)
-}
-outbound_times = time_mapping[outbound_time]
-return_times = time_mapping[return_time]
-
-# Build day patterns
-DAYS_IN_WEEK = {}
-if ws_out and ws_ret:
-    DAYS_IN_WEEK["weekend_short"] = [f"{day_names.index(o)}-{day_names.index(r)}" for o in ws_out for r in ws_ret]
-if wl_out and wl_ret:
-    DAYS_IN_WEEK["weekend_long"] = [f"{day_names.index(o)}-{day_names.index(r)}" for o in wl_out for r in wl_ret]
+    
+    # Convert to tuple format (start_morning, end_morning, start_evening, end_evening)
+    outbound_times = (outbound_time_range[0], outbound_time_range[0], outbound_time_range[1], outbound_time_range[1])
+    return_times = (return_time_range[0], return_time_range[0], return_time_range[1], return_time_range[1])
 
 # Main area
 if not destinations:
     st.warning("⚠️ Please add at least one destination in the sidebar")
-elif not DAYS_IN_WEEK:
+elif not st.session_state.day_patterns:
     st.warning("⚠️ Please configure at least one day pattern in the sidebar")
 else:
     # Display configuration summary
     with st.expander("📋 Search Summary", expanded=True):
         col1, col2, col3 = st.columns(3)
+        
+        # Row 1: Origin spanning all columns
+        st.markdown(f"**🛫 Origin:** {origin}")
+        
+        col1, col2 = st.columns(2)
+        # Row 2: Date ranges
         with col1:
-            st.metric("Origin", origin)
-            st.metric("Destinations", len(destinations))
+            st.metric("📅 Outbound Range", f"{(outbound_end - outbound_start).days} days")
         with col2:
-            st.metric("Outbound Range", f"{(outbound_end - outbound_start).days} days")
-            st.metric("Return Range", f"{(return_end - return_start).days} days")
+            st.metric("📅 Return Range", f"{(return_end - return_start).days} days")
+        
+        col1, col2, col3 = st.columns(3)
+        # Row 3: Patterns, Destinations, Connections
+        with col1:
+            pattern_list = [f"{p['outbound'][:3]}-{p['return'][:3]}" for p in st.session_state.day_patterns]
+            st.metric("📆 Patterns", len(st.session_state.day_patterns))
+            st.caption(", ".join(pattern_list))
+        with col2:
+            st.metric("📍 Destinations", len(destinations))
+            if len(destinations) <= 3:
+                st.caption(", ".join(destinations))
+            else:
+                st.caption(f"{', '.join(destinations[:3])}...")
         with col3:
-            st.metric("Pattern Groups", len(DAYS_IN_WEEK))
-            st.metric("Connections", "Allowed" if allow_stops else "Direct only")
+            st.metric("✈️ Connections", "Allowed" if allow_stops else "Direct only")
     
     # Search button
     if st.button("🌊 Navigate the Abyss", type="primary", use_container_width=True):
