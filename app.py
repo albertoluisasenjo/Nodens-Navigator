@@ -193,14 +193,31 @@ st.markdown("""
         background: linear-gradient(180deg, #0f2027 0%, #203a43 100%);
     }
     
-    /* Day patterns table styling */
-    .stSelectbox {
-        margin-bottom: 0.5rem;
+    /* Day patterns table styling - compact */
+    [data-testid="stSidebar"] .stSelectbox {
+        margin-bottom: 0rem;
+    }
+    
+    [data-testid="stSidebar"] .stSelectbox > div > div {
+        font-size: 0.85rem !important;
+    }
+    
+    [data-testid="stSidebar"] .stSelectbox select {
+        font-size: 0.85rem !important;
+        padding: 0.25rem 0.5rem !important;
+        min-height: 2rem !important;
     }
     
     /* Compact pattern display */
     div[data-testid="column"] p {
         margin-bottom: 0.25rem;
+    }
+    
+    /* Make delete buttons smaller */
+    [data-testid="stSidebar"] .stButton button {
+        padding: 0.25rem 0.5rem !important;
+        font-size: 1rem !important;
+        min-height: 2rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -485,16 +502,14 @@ with st.sidebar:
     
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     
-    # Display patterns table
-    st.markdown("**Pattern | Outbound → Return**")
-    
+    # Display patterns table with compact layout
     patterns_to_remove = []
     for idx, pattern in enumerate(st.session_state.day_patterns):
-        col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
+        col1, col2, col3 = st.columns([4, 4, 1])
         
         with col1:
             outbound = st.selectbox(
-                "Out",
+                "Outbound",
                 day_names,
                 index=day_names.index(pattern['outbound']),
                 key=f"out_{idx}",
@@ -504,7 +519,7 @@ with st.sidebar:
         
         with col2:
             return_day = st.selectbox(
-                "Ret",
+                "Return",
                 day_names,
                 index=day_names.index(pattern['return']),
                 key=f"ret_{idx}",
@@ -513,12 +528,16 @@ with st.sidebar:
             st.session_state.day_patterns[idx]['return'] = return_day
         
         with col3:
-            pattern_name = f"{outbound[:3]}-{return_day[:3]}"
-            st.markdown(f"**{pattern_name}**")
-        
-        with col4:
             if st.button("🗑️", key=f"del_{idx}", help="Remove pattern"):
                 patterns_to_remove.append(idx)
+        
+        # Pattern name centered below the dropdowns
+        pattern_name = f"{outbound[:3]}-{return_day[:3]}"
+        st.markdown(
+            f"<div style='text-align: center; font-size: 0.9rem; font-weight: bold; color: #06b6d4; margin: -0.8rem 0 1rem 0;'>"
+            f"{pattern_name}</div>", 
+            unsafe_allow_html=True
+        )
     
     # Remove patterns
     for idx in reversed(patterns_to_remove):
