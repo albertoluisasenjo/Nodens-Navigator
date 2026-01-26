@@ -437,17 +437,21 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     # Origin
-    origin = st.text_input("🛫 Origin Airport Code", value="AGP", help="IATA code (e.g., AGP for Málaga)")
+    origin = st.text_input(
+        "🛫 Origin City",
+        value="malaga-espana",
+        help="Format: ciudad-pais (e.g., malaga-espana, barcelona-espana)"
+    )
     
     # Destinations
-    st.subheader("📍 Destinations")
+    st.subheader("📍 Destination List")
     destinations_input = st.text_area(
-        "Airport codes (one per line)",
-        value="BCN\nMAD\nVLC",
-        height=150,
-        help="Enter IATA airport codes, one per line"
+        "Cities (one per line)",
+        value="dusseldorf-alemania\nshannon-irlanda\nmemmingen-alemania",
+        height=200,
+        help="Format: ciudad-pais (e.g., dusseldorf-alemania, paris-francia)"
     )
-    destinations = [d.strip().upper() for d in destinations_input.split('\n') if d.strip()]
+    destinations = [d.strip().lower() for d in destinations_input.split('\n') if d.strip()]
     
     # Date range
     st.subheader("📅 Date Range")
