@@ -734,7 +734,7 @@ else:
         }
         
         try:
-            driver = setup_driver(headless=True)
+            driver = setup_driver(headless=False)
             
             for idx, destination in enumerate(destinations):
                 progress = (idx + 1) / len(destinations)
