@@ -449,33 +449,95 @@ def scrape_calendar(driver, wait, direction: str) -> List[dict]:
 
 
 def scrape_prices(driver, url: str) -> pd.DataFrame:
-    """Scrape flight prices."""
-    driver.get(url)
-    random_delay(3, 5)
-    close_popup(driver)
-    
-    wait = WebDriverWait(driver, 20)
-    all_prices = []
-    
+    """Scrape flight prices with detailed logging."""
     try:
-        input_elem = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="SearchFieldDateInput"]')))
-        human_click(driver, input_elem)
-        random_delay(1, 2)
-        all_prices.extend(scrape_calendar(driver, wait, 'Outbound'))
+        st.info(f"📡 Loading URL: {url[:100]}...")
+        driver.get(url)
+        random_delay(3, 5)
+        
+        # Check if page loaded
+        page_title = driver.title
+        st.info(f"📄 Page title: {page_title}")
+        
+        # Take screenshot for debugging (optional)
+        try:
+            screenshot = driver.get_screenshot_as_base64()
+            st.info("📸 Screenshot captured successfully")
+        except:
+            pass
+        
+        close_popup(driver)
+        
+        wait = WebDriverWait(driver, 20)
+        all_prices = []
+        
+        # Try to find the date input
+        try:
+            st.info("🔍 Looking for date input field...")
+            input_elem = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="SearchFieldDateInput"]')))
+            st.success("✅ Found date input field")
+            
+            human_click(driver, input_elem)
+            random_delay(1, 2)
+            
+            st.info("📅 Scraping outbound calendar...")
+            outbound_prices = scrape_calendar(driver, wait, 'Outbound')
+            st.info(f"📊 Outbound prices found: {len(outbound_prices)}")
+            all_prices.extend(outbound_prices)
+            
+        except Exception as e:
+            st.error(f"❌ Outbound calendar error: {type(e).__name__}: {str(e)[:200]}")
+            
+            # Check what's on the page
+            try:
+                page_source_preview = driver.page_source[:500]
+                st.code(f"Page source preview: {page_source_preview}")
+            except:
+                pass
+        
+        # Try to find return picker
+        try:
+            st.info("🔍 Looking for return date picker...")
+            return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
+            st.success("✅ Found return date picker")
+            
+            human_click(driver, return_picker)
+            random_delay(1, 2)
+            
+            st.info("📅 Scraping return calendar...")
+            return_prices = scrape_calendar(driver, wait, 'Return')
+            st.info(f"📊 Return prices found: {len(return_prices)}")
+            all_prices.extend(return_prices)
+            
+        except Exception as e:
+            st.error(f"❌ Return calendar error: {type(e).__name__}: {str(e)[:200]}")
+        
+        if all_prices:
+            st.success(f"✅ Total prices collected: {len(all_prices)}")
+            return pd.DataFrame(all_prices)
+        else:
+            st.warning("⚠️ No prices found in calendars")
+            
+            # Show what elements are available
+            try:
+                st.info("🔍 Checking for calendar elements...")
+                calendars = driver.find_elements(By.CSS_SELECTOR, '[data-test="CalendarContainer"]')
+                st.info(f"Found {len(calendars)} calendar containers")
+                
+                days = driver.find_elements(By.CSS_SELECTOR, '[data-test="CalendarDay"]')
+                st.info(f"Found {len(days)} calendar days")
+                
+                if len(days) == 0:
+                    st.warning("⚠️ No calendar days found - page might not have loaded correctly")
+                    
+            except Exception as e:
+                st.error(f"Debug error: {str(e)}")
+                
+            return pd.DataFrame()
+            
     except Exception as e:
-        st.warning(f"⚠️ Outbound error: {str(e)[:100]}")
-    
-    try:
-        return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
-        human_click(driver, return_picker)
-        random_delay(1, 2)
-        all_prices.extend(scrape_calendar(driver, wait, 'Return'))
-    except Exception as e:
-        st.warning(f"⚠️ Return error: {str(e)[:100]}")
-    
-    if all_prices:
-        return pd.DataFrame(all_prices)
-    return pd.DataFrame()
+        st.error(f"❌ Major error in scrape_prices: {type(e).__name__}: {str(e)}")
+        return pd.DataFrame()
 
 
 def find_combinations(df: pd.DataFrame, day_pattern: str) -> pd.DataFrame:
@@ -622,31 +684,54 @@ with st.sidebar:
     # Time preferences (simplified)
     st.subheader("🕐 Time Preferences")
     
-    st.markdown("**Outbound Flight Times**")
-    outbound_time_range = st.slider(
-        "Outbound hours",
-        min_value=0,
-        max_value=24,
-        value=(9, 23),
-        step=1,
-        format="%d:00",
-        label_visibility="collapsed"
-    )
+    # Create hour options (0-24)
+    hours = [f"{h:02d}:00" for h in range(25)]
+    hour_values = list(range(25))
     
-    st.markdown("**Return Flight Times**")
-    return_time_range = st.slider(
-        "Return hours",
-        min_value=0,
-        max_value=24,
-        value=(13, 21),
-        step=1,
-        format="%d:00",
-        label_visibility="collapsed"
-    )
+    st.markdown("**Outbound Flight**")
+    col1, col2 = st.columns(2)
+    with col1:
+        outbound_dep_after = st.selectbox(
+            "Departure: Later than",
+            hours,
+            index=9,  # 09:00
+            key="out_dep"
+        )
+    with col2:
+        outbound_arr_before = st.selectbox(
+            "Arrival: Earlier than",
+            hours,
+            index=16,  # 16:00
+            key="out_arr"
+        )
     
-    # Convert to tuple format (start_morning, end_morning, start_evening, end_evening)
-    outbound_times = (outbound_time_range[0], outbound_time_range[0], outbound_time_range[1], outbound_time_range[1])
-    return_times = (return_time_range[0], return_time_range[0], return_time_range[1], return_time_range[1])
+    st.markdown("**Return Flight**")
+    col1, col2 = st.columns(2)
+    with col1:
+        return_dep_after = st.selectbox(
+            "Departure: Later than",
+            hours,
+            index=13,  # 13:00
+            key="ret_dep"
+        )
+    with col2:
+        return_arr_before = st.selectbox(
+            "Arrival: Earlier than",
+            hours,
+            index=21,  # 21:00
+            key="ret_arr"
+        )
+    
+    # Convert to tuple format for Kiwi.com URL
+    # Format: (departure_after, 24, 0, arrival_before)
+    # Meaning: depart after X, anytime in the day (24), from midnight (0), arrive before Y
+    outbound_dep_hour = hours.index(outbound_dep_after)
+    outbound_arr_hour = hours.index(outbound_arr_before)
+    return_dep_hour = hours.index(return_dep_after)
+    return_arr_hour = hours.index(return_arr_before)
+    
+    outbound_times = (outbound_dep_hour, 24, 0, outbound_arr_hour)
+    return_times = (return_dep_hour, 24, 0, return_arr_hour)
 
 # Main area
 if not destinations:
