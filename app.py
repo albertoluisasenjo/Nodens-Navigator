@@ -449,35 +449,45 @@ def scrape_calendar(driver, wait, direction: str) -> List[dict]:
 
 
 def scrape_prices(driver, url: str) -> pd.DataFrame:
-    """Scrape flight prices with detailed logging."""
+    """Scrape flight prices with robust error handling."""
     try:
-        st.info(f"📡 Loading URL: {url[:100]}...")
+        # Verify driver is alive
+        try:
+            _ = driver.current_url
+        except Exception as e:
+            st.error(f"❌ Driver not responding: {str(e)}")
+            return pd.DataFrame()
+        
         driver.get(url)
         random_delay(3, 5)
-        
-        # Check if page loaded
-        page_title = driver.title
-        st.info(f"📄 Page title: {page_title}")
-        
-        # Take screenshot for debugging (optional)
-        try:
-            screenshot = driver.get_screenshot_as_base64()
-            st.info("📸 Screenshot captured successfully")
-        except:
-            pass
-        
         close_popup(driver)
         
         wait = WebDriverWait(driver, 20)
         all_prices = []
         
-        # Try to find the date input
         try:
-            st.info("🔍 Looking for date input field...")
             input_elem = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="SearchFieldDateInput"]')))
-            st.success("✅ Found date input field")
-            
             human_click(driver, input_elem)
+            random_delay(1, 2)
+            all_prices.extend(scrape_calendar(driver, wait, 'Outbound'))
+        except Exception as e:
+            st.warning(f"⚠️ Outbound calendar error: {str(e)[:100]}")
+        
+        try:
+            return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
+            human_click(driver, return_picker)
+            random_delay(1, 2)
+            all_prices.extend(scrape_calendar(driver, wait, 'Return'))
+        except Exception as e:
+            st.warning(f"⚠️ Return calendar error: {str(e)[:100]}")
+        
+        if all_prices:
+            return pd.DataFrame(all_prices)
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"❌ Major error in scrape_prices: {str(e)}")
+        return pd.DataFrame()
             random_delay(1, 2)
             
             st.info("📅 Scraping outbound calendar...")
@@ -541,6 +551,7 @@ def scrape_prices(driver, url: str) -> pd.DataFrame:
 
 
 def find_combinations(df: pd.DataFrame, day_pattern: str) -> pd.DataFrame:
+    """Find flight combinations matching the day pattern (same week only)."""
     out_day, ret_day = map(int, day_pattern.split('-'))
     
     outbound = df[df['Direction'] == 'Outbound'].copy()
@@ -557,16 +568,21 @@ def find_combinations(df: pd.DataFrame, day_pattern: str) -> pd.DataFrame:
     
     combinations = []
     for _, out_row in outbound.iterrows():
-        valid_returns = return_df[return_df['Date'] > out_row['Date']]
+        # Only take returns within the SAME WEEK (max 7 days from outbound)
+        valid_returns = return_df[
+            (return_df['Date'] > out_row['Date']) & 
+            (return_df['Date'] <= out_row['Date'] + pd.Timedelta(days=7))
+        ]
         
         for _, ret_row in valid_returns.iterrows():
+            days_diff = (ret_row['Date'] - out_row['Date']).days
             combinations.append({
                 'Outbound_Date': out_row['Date'].strftime('%Y-%m-%d'),
                 'Outbound_Price': out_row['Price'],
                 'Return_Date': ret_row['Date'].strftime('%Y-%m-%d'),
                 'Return_Price': ret_row['Price'],
                 'Total_Price': out_row['Price'] + ret_row['Price'],
-                'Days': (ret_row['Date'] - out_row['Date']).days
+                'Days': days_diff
             })
     
     return pd.DataFrame(combinations)
@@ -603,13 +619,26 @@ with st.sidebar:
     
     # Date range
     st.subheader("📅 Date Range")
+    
+    # Toggle for syncing return dates with outbound dates
+    sync_dates = st.checkbox("🔗 Same date range for return", value=False, 
+                              help="If checked, return dates will match outbound dates")
+    
     col1, col2 = st.columns(2)
     with col1:
         outbound_start = st.date_input("Outbound from", datetime.now())
-        return_start = st.date_input("Return from", datetime.now() + timedelta(days=2))
+        if not sync_dates:
+            return_start = st.date_input("Return from", datetime.now())
+        else:
+            return_start = outbound_start
+            st.caption(f"Return from: {outbound_start.strftime('%Y-%m-%d')} (synced)")
     with col2:
         outbound_end = st.date_input("Outbound to", datetime.now() + timedelta(days=30))
-        return_end = st.date_input("Return to", datetime.now() + timedelta(days=35))
+        if not sync_dates:
+            return_end = st.date_input("Return to", datetime.now() + timedelta(days=30))
+        else:
+            return_end = outbound_end
+            st.caption(f"Return to: {outbound_end.strftime('%Y-%m-%d')} (synced)")
     
     # Day patterns
     st.subheader("📆 Day Patterns")
@@ -649,7 +678,7 @@ with st.sidebar:
             st.session_state.day_patterns[idx]['return'] = return_day
         
         with col3:
-            if st.button("🗑️", key=f"del_{idx}", help="Remove pattern"):
+            if st.button("×", key=f"del_{idx}", help="Remove pattern"):
                 patterns_to_remove.append(idx)
         
         # Pattern name centered below the dropdowns
@@ -709,14 +738,14 @@ with st.sidebar:
     col1, col2 = st.columns(2)
     with col1:
         return_dep_after = st.selectbox(
-            "Departure: Later than",
+            "Departure:/tLater than",
             hours,
             index=13,  # 13:00
             key="ret_dep"
         )
     with col2:
         return_arr_before = st.selectbox(
-            "Arrival: Earlier than",
+            "Arrival:/tEarlier than",
             hours,
             index=21,  # 21:00
             key="ret_arr"
@@ -798,9 +827,19 @@ else:
             for idx, destination in enumerate(destinations):
                 progress = (idx + 1) / len(destinations)
                 progress_bar.progress(progress)
-                status_text.text(f"🌊 Nodens navigating to {destination}... ({idx + 1}/{len(destinations)})")
+                status_text.text(f"🌊 Scraping {destination}... ({idx + 1}/{len(destinations)})")
                 
                 try:
+                    # Verify driver is still alive before each request
+                    try:
+                        _ = driver.current_url
+                    except:
+                        try:
+                            driver.quit()
+                        except:
+                            pass
+                        driver = setup_driver(headless=True)
+                    
                     url = builder.build_search_url(
                         origin=origin,
                         destination=destination,
@@ -827,16 +866,14 @@ else:
                         all_destination_data.append(df)
                         scraping_stats['with_data'] += 1
                         
-                        # Show real-time results
-                        results_container.success(
-                            f"✅ {destination}: **{len(df)} prices** found "
-                            f"({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
+                        # Simple success message
+                        results_container.info(
+                            f"{destination}: {len(df)} prices found ({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
                         )
                     else:
                         scraping_stats['without_data'] += 1
-                        results_container.warning(
-                            f"⚠️ {destination}: No prices found "
-                            f"({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
+                        results_container.info(
+                            f"{destination}: No prices found ({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
                         )
                     
                     if idx < len(destinations) - 1:
@@ -844,14 +881,13 @@ else:
                         
                 except Exception as e:
                     scraping_stats['errors'] += 1
-                    results_container.error(f"❌ {destination}: Error - {str(e)}")
-                    st.warning(f"⚠️ Error scraping {destination}: {str(e)}")
+                    results_container.error(f"{destination}: Error - {str(e)[:50]}")
                     continue
             
             driver.quit()
             
-            # Final summary
-            status_text.success("✅ Navigation complete! Order restored.")
+            # Final message
+            status_text.success("🌊 Nodens has brought order to the chaos!")
             
             st.info(f"""
             **📊 Scraping Summary:**
@@ -956,6 +992,44 @@ else:
                                     **{group_name.replace('_', ' ').title()}**  
                                     📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
                                     💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({dest_url})
+                                    """)
+                                    st.divider()
+                    
+                    # Best by pattern
+                    st.subheader("📆 Best Deals by Pattern")
+                    
+                    for group_name in DAYS_IN_WEEK.keys():
+                        if combinations_by_group[group_name]:
+                            with st.expander(f"🗓️ {group_name.replace('_', ' ').title()}", expanded=False):
+                                group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
+                                
+                                # Get best price per destination for this pattern
+                                pattern_results = []
+                                for destination in destinations:
+                                    dest_df = group_df[group_df['Destination'] == destination]
+                                    if not dest_df.empty:
+                                        best = dest_df.sort_values('Total_Price').iloc[0]
+                                        pattern_results.append(best)
+                                
+                                # Sort by price
+                                pattern_results = sorted(pattern_results, key=lambda x: x['Total_Price'])
+                                
+                                # Display each destination's best deal for this pattern
+                                for best in pattern_results:
+                                    pattern_url = builder.build_specific_url(
+                                        origin=origin,
+                                        destination=best['Destination'],
+                                        outbound_date=best['Outbound_Date'],
+                                        return_date=best['Return_Date'],
+                                        outbound_times=outbound_times,
+                                        return_times=return_times,
+                                        stops=allow_stops
+                                    )
+                                    
+                                    st.markdown(f"""
+                                    **{best['Destination']}**  
+                                    📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
+                                    💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({pattern_url})
                                     """)
                                     st.divider()
                     
