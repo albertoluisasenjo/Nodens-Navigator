@@ -679,8 +679,16 @@ else:
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
+        results_container = st.empty()
         
         all_destination_data = []
+        scraping_stats = {
+            'total': len(destinations),
+            'completed': 0,
+            'with_data': 0,
+            'without_data': 0,
+            'errors': 0
+        }
         
         try:
             driver = setup_driver(headless=True)
@@ -710,19 +718,46 @@ else:
                     
                     df = scrape_prices(driver, url)
                     
+                    scraping_stats['completed'] += 1
+                    
                     if not df.empty:
                         df['Destination'] = destination
                         all_destination_data.append(df)
+                        scraping_stats['with_data'] += 1
+                        
+                        # Show real-time results
+                        results_container.success(
+                            f"✅ {destination}: **{len(df)} prices** found "
+                            f"({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
+                        )
+                    else:
+                        scraping_stats['without_data'] += 1
+                        results_container.warning(
+                            f"⚠️ {destination}: No prices found "
+                            f"({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
+                        )
                     
                     if idx < len(destinations) - 1:
                         time.sleep(random.uniform(5, 10))
                         
                 except Exception as e:
+                    scraping_stats['errors'] += 1
+                    results_container.error(f"❌ {destination}: Error - {str(e)}")
                     st.warning(f"⚠️ Error scraping {destination}: {str(e)}")
                     continue
             
             driver.quit()
-            status_text.text("✅ Navigation complete! Order restored.")
+            
+            # Final summary
+            status_text.success("✅ Navigation complete! Order restored.")
+            
+            st.info(f"""
+            **📊 Scraping Summary:**
+            - ✅ Completed: {scraping_stats['completed']}/{scraping_stats['total']}
+            - 📈 With data: {scraping_stats['with_data']}
+            - ⚠️ Without data: {scraping_stats['without_data']}
+            - ❌ Errors: {scraping_stats['errors']}
+            """)
             
             # Analyze combinations
             if all_destination_data:
@@ -842,7 +877,73 @@ else:
                 else:
                     st.warning("😔 No valid combinations found. Try adjusting your search parameters.")
             else:
-                st.error("❌ No data retrieved. Please check your settings and try again.")
+                st.error("❌ No data retrieved from any destination.")
+                
+                # Diagnostic information
+                st.warning("""
+                **🔍 Possible causes:**
+                
+                1. **Date range issues:**
+                   - Verify your date ranges are in the future
+                   - Ensure return dates are after outbound dates
+                   - Try wider date ranges (30+ days)
+                
+                2. **City format issues:**
+                   - Check format is `ciudad-pais` in Spanish (lowercase, no accents)
+                   - Example: `dusseldorf-alemania` not `DUS` or `Düsseldorf-Germany`
+                   - Verify cities in CITY_FORMAT_REFERENCE.md
+                
+                3. **Time restrictions:**
+                   - Very narrow time ranges may have no flights
+                   - Try expanding time ranges (e.g., 0:00-24:00)
+                
+                4. **Pattern issues:**
+                   - Verify your day patterns make sense
+                   - Return day should typically be after outbound day
+                
+                5. **Website blocking:**
+                   - Kiwi.com may be blocking automated access
+                   - Try fewer destinations at once
+                   - Wait a few minutes and try again
+                
+                **💡 Quick fixes to try:**
+                - Use default examples: `malaga-espana` → `dusseldorf-alemania`
+                - Expand date ranges to 30+ days
+                - Use time ranges: 0:00-24:00 for both directions
+                - Try with just 1-2 destinations first
+                """)
+                
+                # Show what was attempted
+                with st.expander("🔧 Debug Information"):
+                    st.code(f"""
+Origin: {origin}
+Destinations: {', '.join(destinations)}
+Outbound dates: {outbound_start} to {outbound_end}
+Return dates: {return_start} to {return_end}
+Patterns: {[f"{p['outbound']}-{p['return']}" for p in st.session_state.day_patterns]}
+Outbound times: {outbound_times}
+Return times: {return_times}
+Allow stops: {allow_stops}
+                    """)
+                    
+                    st.markdown("**Example URL that was used:**")
+                    example_url = builder.build_search_url(
+                        origin=origin,
+                        destination=destinations[0] if destinations else "dusseldorf-alemania",
+                        outbound_dates=(
+                            outbound_start.strftime('%Y-%m-%d'),
+                            outbound_end.strftime('%Y-%m-%d')
+                        ),
+                        return_dates=(
+                            return_start.strftime('%Y-%m-%d'),
+                            return_end.strftime('%Y-%m-%d')
+                        ),
+                        combined_pattern=combined_pattern,
+                        outbound_times=outbound_times,
+                        return_times=return_times,
+                        stops=allow_stops
+                    )
+                    st.code(example_url)
                 
         except Exception as e:
             st.error(f"❌ An error occurred: {str(e)}")
