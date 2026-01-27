@@ -312,7 +312,6 @@ class KiwiURLBuilder:
         return url
 
 
-@st.cache_resource
 def setup_driver(headless: bool = True) -> webdriver.Chrome:
     """Set up Chrome driver to mimic a real Windows browser."""
     from selenium.webdriver.chrome.service import Service
@@ -785,14 +784,20 @@ else:
                             _ = driver.current_url
                             driver_ok = True
                             break
-                        except:
+                        except Exception as e:
                             if attempt == 0:
                                 st.info(f"⚠️ Recreating driver for {destination}...")
                                 try:
                                     driver.quit()
                                 except:
                                     pass
-                                driver = setup_driver(headless=True)
+                                try:
+                                    driver = setup_driver(headless=True)
+                                except Exception as setup_error:
+                                    st.error(f"❌ Failed to setup driver: {str(setup_error)[:100]}")
+                                    break
+                            else:
+                                st.error(f"❌ Driver verification failed after 2 attempts: {str(e)[:100]}")
                     
                     if not driver_ok:
                         st.error(f"❌ Could not initialize driver for {destination}")
