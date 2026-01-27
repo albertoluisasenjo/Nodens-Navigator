@@ -314,7 +314,10 @@ class KiwiURLBuilder:
 
 @st.cache_resource
 def setup_driver(headless: bool = True) -> webdriver.Chrome:
-    """Set up Chrome driver."""
+    """Set up Chrome driver with automatic driver management."""
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    
     options = Options()
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -324,14 +327,21 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
     
     if headless:
-        options.add_argument('--headless')
+        options.add_argument('--headless=new')
     
-    driver = webdriver.Chrome(options=options)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    
-    return driver
+    try:
+        # Use webdriver-manager to automatically download and manage ChromeDriver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        return driver
+    except Exception as e:
+        st.error(f"Error initializing Chrome driver: {str(e)}")
+        st.info("💡 Make sure Chrome/Chromium is installed on your system")
+        raise
 
 
 def random_delay(min_sec: float = 1.0, max_sec: float = 3.0):
