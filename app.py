@@ -314,22 +314,44 @@ class KiwiURLBuilder:
 
 @st.cache_resource
 def setup_driver(headless: bool = True) -> webdriver.Chrome:
-    """Set up Chrome driver with automatic driver management."""
+    """Set up Chrome driver with automatic driver management and anti-detection."""
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
     from webdriver_manager.core.os_manager import ChromeType
     
     options = Options()
+    
+    # Core anti-detection options
     options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+    
+    # Realistic user agent
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
+    # Window and display options
     options.add_argument('--window-size=1920,1080')
+    options.add_argument('--start-maximized')
+    
+    # Security and stability options
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-setuid-sandbox')
     options.add_argument('--remote-debugging-port=9222')
+    
+    # Additional stealth options
+    options.add_argument('--disable-web-security')
+    options.add_argument('--allow-running-insecure-content')
+    options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    
+    # Language and locale
+    options.add_argument('--lang=es-ES')
+    options.add_experimental_option('prefs', {
+        'intl.accept_languages': 'es-ES,es',
+        'profile.default_content_setting_values.notifications': 2,
+        'profile.default_content_settings.popups': 0,
+    })
     
     if headless:
         options.add_argument('--headless=new')
@@ -345,7 +367,17 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
             ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
         )
         driver = webdriver.Chrome(service=service, options=options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        # Enhanced anti-detection script
+        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': '''
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['es-ES', 'es', 'en']});
+                window.chrome = {runtime: {}};
+            '''
+        })
+        
         return driver
         
     except subprocess.CalledProcessError:
@@ -354,7 +386,17 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
         try:
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            
+            # Enhanced anti-detection script
+            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                    Object.defineProperty(navigator, 'languages', {get: () => ['es-ES', 'es', 'en']});
+                    window.chrome = {runtime: {}};
+                '''
+            })
+            
             return driver
         except Exception as e:
             st.error(f"❌ Error initializing Chrome driver: {str(e)}")
@@ -433,28 +475,29 @@ def scrape_calendar(driver, wait, direction: str) -> List[dict]:
 
 
 def scrape_prices(driver, url: str) -> pd.DataFrame:
+    """Scrape flight prices with extended wait times for cloud environments."""
     driver.get(url)
-    random_delay(3, 5)
+    random_delay(5, 8)  # Increased initial wait
     close_popup(driver)
     
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 40)  # Increased from 20 to 40 seconds
     all_prices = []
     
     try:
         input_elem = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="SearchFieldDateInput"]')))
         human_click(driver, input_elem)
-        random_delay(1, 2)
+        random_delay(2, 4)  # Increased delay
         all_prices.extend(scrape_calendar(driver, wait, 'Outbound'))
-    except:
-        pass
+    except Exception as e:
+        st.warning(f"⚠️ Could not scrape outbound prices: {str(e)}")
     
     try:
         return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
         human_click(driver, return_picker)
-        random_delay(1, 2)
+        random_delay(2, 4)  # Increased delay
         all_prices.extend(scrape_calendar(driver, wait, 'Return'))
-    except:
-        pass
+    except Exception as e:
+        st.warning(f"⚠️ Could not scrape return prices: {str(e)}")
     
     if all_prices:
         return pd.DataFrame(all_prices)
@@ -738,7 +781,8 @@ else:
                         )
                     
                     if idx < len(destinations) - 1:
-                        time.sleep(random.uniform(5, 10))
+                        delay_time = random.uniform(8, 15)  # Increased delay
+                        time.sleep(delay_time)
                         
                 except Exception as e:
                     scraping_stats['errors'] += 1
