@@ -482,7 +482,6 @@ def scrape_prices(driver, url: str) -> pd.DataFrame:
             st.warning(f"⚠️ Return calendar error: {str(e)[:100]}")
         
         if all_prices:
-        if all_prices:
             return pd.DataFrame(all_prices)
         return pd.DataFrame()
         
