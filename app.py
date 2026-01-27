@@ -482,71 +482,12 @@ def scrape_prices(driver, url: str) -> pd.DataFrame:
             st.warning(f"⚠️ Return calendar error: {str(e)[:100]}")
         
         if all_prices:
+        if all_prices:
             return pd.DataFrame(all_prices)
         return pd.DataFrame()
         
     except Exception as e:
         st.error(f"❌ Major error in scrape_prices: {str(e)}")
-        return pd.DataFrame()
-            random_delay(1, 2)
-            
-            st.info("📅 Scraping outbound calendar...")
-            outbound_prices = scrape_calendar(driver, wait, 'Outbound')
-            st.info(f"📊 Outbound prices found: {len(outbound_prices)}")
-            all_prices.extend(outbound_prices)
-            
-        except Exception as e:
-            st.error(f"❌ Outbound calendar error: {type(e).__name__}: {str(e)[:200]}")
-            
-            # Check what's on the page
-            try:
-                page_source_preview = driver.page_source[:500]
-                st.code(f"Page source preview: {page_source_preview}")
-            except:
-                pass
-        
-        # Try to find return picker
-        try:
-            st.info("🔍 Looking for return date picker...")
-            return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
-            st.success("✅ Found return date picker")
-            
-            human_click(driver, return_picker)
-            random_delay(1, 2)
-            
-            st.info("📅 Scraping return calendar...")
-            return_prices = scrape_calendar(driver, wait, 'Return')
-            st.info(f"📊 Return prices found: {len(return_prices)}")
-            all_prices.extend(return_prices)
-            
-        except Exception as e:
-            st.error(f"❌ Return calendar error: {type(e).__name__}: {str(e)[:200]}")
-        
-        if all_prices:
-            st.success(f"✅ Total prices collected: {len(all_prices)}")
-            return pd.DataFrame(all_prices)
-        else:
-            st.warning("⚠️ No prices found in calendars")
-            
-            # Show what elements are available
-            try:
-                st.info("🔍 Checking for calendar elements...")
-                calendars = driver.find_elements(By.CSS_SELECTOR, '[data-test="CalendarContainer"]')
-                st.info(f"Found {len(calendars)} calendar containers")
-                
-                days = driver.find_elements(By.CSS_SELECTOR, '[data-test="CalendarDay"]')
-                st.info(f"Found {len(days)} calendar days")
-                
-                if len(days) == 0:
-                    st.warning("⚠️ No calendar days found - page might not have loaded correctly")
-                    
-            except Exception as e:
-                st.error(f"Debug error: {str(e)}")
-                
-            return pd.DataFrame()
-            
-    except Exception as e:
-        st.error(f"❌ Major error in scrape_prices: {type(e).__name__}: {str(e)}")
         return pd.DataFrame()
 
 
@@ -720,35 +661,43 @@ with st.sidebar:
     st.markdown("**Outbound Flight**")
     col1, col2 = st.columns(2)
     with col1:
+        st.markdown("Departure:")
         outbound_dep_after = st.selectbox(
-            "Departure: Later than",
+            "Later than",
             hours,
             index=9,  # 09:00
-            key="out_dep"
+            key="out_dep",
+            label_visibility="visible"
         )
     with col2:
+        st.markdown("Arrival:")
         outbound_arr_before = st.selectbox(
-            "Arrival: Earlier than",
+            "Earlier than",
             hours,
             index=16,  # 16:00
-            key="out_arr"
+            key="out_arr",
+            label_visibility="visible"
         )
     
     st.markdown("**Return Flight**")
     col1, col2 = st.columns(2)
     with col1:
+        st.markdown("Departure:")
         return_dep_after = st.selectbox(
-            "Departure:/tLater than",
+            "Later than",
             hours,
             index=13,  # 13:00
-            key="ret_dep"
+            key="ret_dep",
+            label_visibility="visible"
         )
     with col2:
+        st.markdown("Arrival:")
         return_arr_before = st.selectbox(
-            "Arrival:/tEarlier than",
+            "Earlier than",
             hours,
             index=21,  # 21:00
-            key="ret_arr"
+            key="ret_arr",
+            label_visibility="visible"
         )
     
     # Convert to tuple format for Kiwi.com URL
