@@ -317,6 +317,7 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
     """Set up Chrome driver with automatic driver management."""
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
+    from webdriver_manager.core.os_manager import ChromeType
     
     options = Options()
     options.add_argument('--disable-blink-features=AutomationControlled')
@@ -328,18 +329,49 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--remote-debugging-port=9222')
     
     if headless:
         options.add_argument('--headless=new')
     
     try:
-        # Use webdriver-manager to automatically download and manage ChromeDriver
-        service = Service(ChromeDriverManager().install())
+        # Try to use system chromium first (for Streamlit Cloud)
+        import subprocess
+        chrome_version = subprocess.check_output(['chromium', '--version']).decode('utf-8')
+        st.info(f"🌐 Detected Chrome: {chrome_version.strip()}")
+        
+        # Use ChromeDriverManager with chromium type and force latest version
+        service = Service(
+            ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+        )
         driver = webdriver.Chrome(service=service, options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
+        
+    except subprocess.CalledProcessError:
+        # Fallback to regular Chrome
+        st.info("🌐 Using regular Chrome (not Chromium)")
+        try:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            return driver
+        except Exception as e:
+            st.error(f"❌ Error initializing Chrome driver: {str(e)}")
+            st.info("💡 Chrome version mismatch detected. Try one of these solutions:")
+            st.code("""
+# Solution 1: Update webdriver-manager
+pip install --upgrade webdriver-manager
+
+# Solution 2: Clear webdriver cache
+rm -rf ~/.wdm
+
+# Solution 3: Use specific Chrome version in packages.txt
+            """)
+            raise
+    
     except Exception as e:
-        st.error(f"Error initializing Chrome driver: {str(e)}")
+        st.error(f"❌ Error initializing Chrome driver: {str(e)}")
         st.info("💡 Make sure Chrome/Chromium is installed on your system")
         raise
 
