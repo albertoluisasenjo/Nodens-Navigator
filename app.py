@@ -314,115 +314,88 @@ class KiwiURLBuilder:
 
 @st.cache_resource
 def setup_driver(headless: bool = True) -> webdriver.Chrome:
-    """Set up Chrome driver with automatic driver management and anti-detection."""
+    """Set up Chrome driver to mimic a real Windows browser."""
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
     from webdriver_manager.core.os_manager import ChromeType
     
     options = Options()
     
-    # Core anti-detection options
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
-    # Realistic user agent
-    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    
-    # Window and display options
-    options.add_argument('--window-size=1920,1080')
-    options.add_argument('--start-maximized')
-    
-    # Security and stability options
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--remote-debugging-port=9222')
-    
-    # Additional stealth options
-    options.add_argument('--disable-web-security')
-    options.add_argument('--allow-running-insecure-content')
-    options.add_argument('--disable-features=IsolateOrigins,site-per-process')
-    
-    # Language and locale
-    options.add_argument('--lang=es-ES')
-    options.add_experimental_option('prefs', {
-        'intl.accept_languages': 'es-ES,es',
-        'profile.default_content_setting_values.notifications': 2,
-        'profile.default_content_settings.popups': 0,
-    })
-    
+    # Headless mode (required for Streamlit Cloud)
     if headless:
         options.add_argument('--headless=new')
     
+    # Minimal essential options for server environments
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    
+    # Anti-detection: disable automation flags
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # Realistic Windows Chrome User Agent (latest stable)
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+    
+    # Normal window size
+    options.add_argument('--window-size=1920,1080')
+    
+    # Spanish language preference
+    options.add_experimental_option('prefs', {
+        'intl.accept_languages': 'es-ES,es;q=0.9,en;q=0.8'
+    })
+    
     try:
-        # Try to use system chromium first (for Streamlit Cloud)
+        # Try system chromium first (Streamlit Cloud)
         import subprocess
-        chrome_version = subprocess.check_output(['chromium', '--version']).decode('utf-8')
-        st.info(f"🌐 Detected Chrome: {chrome_version.strip()}")
+        try:
+            chrome_version = subprocess.check_output(['chromium', '--version'], stderr=subprocess.DEVNULL).decode('utf-8')
+            st.info(f"🌐 Chrome: {chrome_version.strip()}")
+            service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        except:
+            st.info("🌐 Using Chrome")
+            service = Service(ChromeDriverManager().install())
         
-        # Use ChromeDriverManager with chromium type and force latest version
-        service = Service(
-            ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
-        )
         driver = webdriver.Chrome(service=service, options=options)
         
-        # Enhanced anti-detection script
-        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-            'source': '''
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['es-ES', 'es', 'en']});
-                window.chrome = {runtime: {}};
-            '''
+        # Remove webdriver property (anti-detection)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        # Override user agent via CDP (more reliable)
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            "platform": "Win32"
         })
         
         return driver
         
-    except subprocess.CalledProcessError:
-        # Fallback to regular Chrome
-        st.info("🌐 Using regular Chrome (not Chromium)")
-        try:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-            
-            # Enhanced anti-detection script
-            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                'source': '''
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['es-ES', 'es', 'en']});
-                    window.chrome = {runtime: {}};
-                '''
-            })
-            
-            return driver
-        except Exception as e:
-            st.error(f"❌ Error initializing Chrome driver: {str(e)}")
-            st.info("💡 Chrome version mismatch detected. Try one of these solutions:")
-            st.code("""
-# Solution 1: Update webdriver-manager
-pip install --upgrade webdriver-manager
-
-# Solution 2: Clear webdriver cache
-rm -rf ~/.wdm
-
-# Solution 3: Use specific Chrome version in packages.txt
-            """)
-            raise
-    
     except Exception as e:
-        st.error(f"❌ Error initializing Chrome driver: {str(e)}")
-        st.info("💡 Make sure Chrome/Chromium is installed on your system")
+        st.error(f"❌ Chrome driver error: {str(e)}")
+        st.warning("""
+        **For Streamlit Cloud:**
+        1. Ensure `packages.txt` contains:
+           ```
+           chromium
+           chromium-driver
+           ```
+        2. Clear cache: Delete and redeploy
+        
+        **For local:**
+        ```bash
+        pip install --upgrade webdriver-manager selenium
+        rm -rf ~/.wdm
+        ```
+        """)
         raise
 
 
 def random_delay(min_sec: float = 1.0, max_sec: float = 3.0):
+    """Random delay."""
     time.sleep(random.uniform(min_sec, max_sec))
 
 
 def human_click(driver, element):
+    """Human-like click."""
     actions = ActionChains(driver)
     actions.move_to_element(element)
     random_delay(0.3, 0.8)
@@ -431,6 +404,7 @@ def human_click(driver, element):
 
 
 def close_popup(driver):
+    """Close popup if present."""
     try:
         random_delay(1, 2)
         close_btn = driver.find_element(By.CSS_SELECTOR, '[data-test="ModalCloseButton"]')
@@ -475,29 +449,29 @@ def scrape_calendar(driver, wait, direction: str) -> List[dict]:
 
 
 def scrape_prices(driver, url: str) -> pd.DataFrame:
-    """Scrape flight prices with extended wait times for cloud environments."""
+    """Scrape flight prices."""
     driver.get(url)
-    random_delay(5, 8)  # Increased initial wait
+    random_delay(3, 5)
     close_popup(driver)
     
-    wait = WebDriverWait(driver, 40)  # Increased from 20 to 40 seconds
+    wait = WebDriverWait(driver, 20)
     all_prices = []
     
     try:
         input_elem = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="SearchFieldDateInput"]')))
         human_click(driver, input_elem)
-        random_delay(2, 4)  # Increased delay
+        random_delay(1, 2)
         all_prices.extend(scrape_calendar(driver, wait, 'Outbound'))
     except Exception as e:
-        st.warning(f"⚠️ Could not scrape outbound prices: {str(e)}")
+        st.warning(f"⚠️ Outbound error: {str(e)[:100]}")
     
     try:
         return_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-test="DatePickerInput"]')))
         human_click(driver, return_picker)
-        random_delay(2, 4)  # Increased delay
+        random_delay(1, 2)
         all_prices.extend(scrape_calendar(driver, wait, 'Return'))
     except Exception as e:
-        st.warning(f"⚠️ Could not scrape return prices: {str(e)}")
+        st.warning(f"⚠️ Return error: {str(e)[:100]}")
     
     if all_prices:
         return pd.DataFrame(all_prices)
@@ -734,7 +708,7 @@ else:
         }
         
         try:
-            driver = setup_driver(headless=False)
+            driver = setup_driver(headless=True)
             
             for idx, destination in enumerate(destinations):
                 progress = (idx + 1) / len(destinations)
@@ -781,8 +755,7 @@ else:
                         )
                     
                     if idx < len(destinations) - 1:
-                        delay_time = random.uniform(8, 15)  # Increased delay
-                        time.sleep(delay_time)
+                        time.sleep(random.uniform(5, 10))
                         
                 except Exception as e:
                     scraping_stats['errors'] += 1
