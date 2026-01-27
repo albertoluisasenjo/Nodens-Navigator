@@ -779,14 +779,25 @@ else:
                 
                 try:
                     # Verify driver is still alive before each request
-                    try:
-                        _ = driver.current_url
-                    except:
+                    driver_ok = False
+                    for attempt in range(2):  # Try twice
                         try:
-                            driver.quit()
+                            _ = driver.current_url
+                            driver_ok = True
+                            break
                         except:
-                            pass
-                        driver = setup_driver(headless=True)
+                            if attempt == 0:
+                                st.info(f"⚠️ Recreating driver for {destination}...")
+                                try:
+                                    driver.quit()
+                                except:
+                                    pass
+                                driver = setup_driver(headless=True)
+                    
+                    if not driver_ok:
+                        st.error(f"❌ Could not initialize driver for {destination}")
+                        scraping_stats['errors'] += 1
+                        continue
                     
                     url = builder.build_search_url(
                         origin=origin,
@@ -806,6 +817,19 @@ else:
                     )
                     
                     df = scrape_prices(driver, url)
+                    
+                    # If scraping returned empty and driver died, retry once with new driver
+                    if df.empty:
+                        try:
+                            _ = driver.current_url
+                        except:
+                            st.info(f"🔄 Driver died during scraping, retrying {destination}...")
+                            try:
+                                driver.quit()
+                            except:
+                                pass
+                            driver = setup_driver(headless=True)
+                            df = scrape_prices(driver, url)
                     
                     scraping_stats['completed'] += 1
                     
