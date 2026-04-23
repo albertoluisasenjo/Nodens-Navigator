@@ -709,7 +709,7 @@ with st.sidebar:
     st.subheader("📍 Destination List")
     destinations_input = st.text_area(
         "Cities (one per line)",
-        value="dusseldorf-alemania\nshannon-irlanda\nmemmingen-alemania",
+        value="berlin-alemania\nlondres-reino-unido\nparis-francia\nvarsovia-polonia\nroma-italia",
         height=200,
         help="Format: ciudad-pais (e.g., dusseldorf-alemania, paris-francia)"
     )
@@ -745,7 +745,7 @@ with st.sidebar:
     # FIX: Updated default patterns — Thu-Mon and Fri-Mon
     if 'day_patterns' not in st.session_state:
         st.session_state.day_patterns = [
-            {'outbound': 'Thu', 'return': 'Mon'},
+            {'outbound': 'Thu', 'return': 'Sun'},
             {'outbound': 'Fri', 'return': 'Mon'}
         ]
     
@@ -1002,7 +1002,6 @@ else:
                     
                     if not df.empty:
                         df['Destination'] = destination
-                        df['Search_URL'] = url
                         all_destination_data.append(df)
                         scraping_stats['with_data'] += 1
                         
@@ -1041,6 +1040,17 @@ else:
                             if not combo_df.empty:
                                 combo_df['Destination'] = destination
                                 combo_df['Group'] = group_name
+                                combo_df['URL'] = combo_df.apply(
+                                    lambda row: builder.build_specific_url(
+                                        origin=origin,
+                                        destination=destination,
+                                        outbound_date=row['Outbound_Date'],
+                                        return_date=row['Return_Date'],
+                                        outbound_times=outbound_times,
+                                        return_times=return_times,
+                                        stops=allow_stops
+                                    ), axis=1
+                                )
                                 combinations_by_group[group_name].append(combo_df)
                 
                 # Pre-build CSV bytes so download doesn't trigger re-scrape
