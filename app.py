@@ -709,7 +709,7 @@ with st.sidebar:
     st.subheader("📍 Destination List")
     destinations_input = st.text_area(
         "Cities (one per line)",
-        value="berlin-alemania\nlondres-reino-unido\nparis-francia\nvarsovia-polonia\nroma-italia",
+        value="berlin-alemania\nlondres-reino-unido\nparis-francia\nvarsovia-polonia\nroma-italia\nbirmingham-reino-unido\ndublin-irlanda\natenas-grecia\ncopenhague-dinamarca\namsterdam-paises-bajos\nbruselas-belgica\nzurich-suiza\ntenerife-espana\nestambul-turquia\nbucarest-rumania\nviena-austria\nestocolmo-suecia\noslo-noruega\nhelsinki-finlandia",
         height=200,
         help="Format: ciudad-pais (e.g., dusseldorf-alemania, paris-francia)"
     )
