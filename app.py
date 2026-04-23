@@ -528,6 +528,165 @@ def find_combinations(df: pd.DataFrame, day_pattern: str) -> pd.DataFrame:
 
 
 # =============================================================================
+# RESULTS DISPLAY FUNCTION
+# =============================================================================
+
+def display_results(results: dict):
+    """Render saved results from session_state. Called on every rerun so
+    the download button rerun doesn't wipe the UI."""
+    
+    combinations_by_group = results['combinations_by_group']
+    DAYS_IN_WEEK = results['DAYS_IN_WEEK']
+    destinations = results['destinations']
+    origin = results['origin']
+    outbound_times = results['outbound_times']
+    return_times = results['return_times']
+    allow_stops = results['allow_stops']
+    scraping_stats = results['scraping_stats']
+    csv_bytes = results['csv_bytes']
+    
+    builder = KiwiURLBuilder()
+    
+    st.info(f"""
+    **📊 Scraping Summary:**
+    - ✅ Completed: {scraping_stats['completed']}/{scraping_stats['total']}
+    - 📈 With data: {scraping_stats['with_data']}
+    - ⚠️ Without data: {scraping_stats['without_data']}
+    - ❌ Errors: {scraping_stats['errors']}
+    """)
+    
+    has_results = any(len(combos) > 0 for combos in combinations_by_group.values())
+    
+    if has_results:
+        st.success("🎉 Nodens has brought order to the chaos!")
+        
+        # Best overall by group
+        st.subheader("🏆 Best Overall Deals")
+        
+        for group_name in DAYS_IN_WEEK.keys():
+            if combinations_by_group[group_name]:
+                group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
+                group_df = group_df.sort_values('Total_Price').reset_index(drop=True)
+                
+                best = group_df.iloc[0]
+                best_url = builder.build_specific_url(
+                    origin=origin,
+                    destination=best['Destination'],
+                    outbound_date=best['Outbound_Date'],
+                    return_date=best['Return_Date'],
+                    outbound_times=outbound_times,
+                    return_times=return_times,
+                    stops=allow_stops
+                )
+                
+                st.markdown(f"""
+                <div class="result-card">
+                    <h3>✈️ {best['Destination']}</h3>
+                    <p><strong>{group_name.replace('_', ' ').title()}</strong></p>
+                    <p>📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} days)</p>
+                    <p class="price-badge">💰 {best['Total_Price']:.0f} EUR</p>
+                    <p><a href="{best_url}" target="_blank" style="color: #06b6d4; text-decoration: none; font-weight: bold;">🔗 Ver en Kiwi.com</a></p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Best by destination
+        st.subheader("📍 Best Deals by Destination")
+        
+        destination_results = {}
+        for destination in destinations:
+            destination_results[destination] = {}
+            
+            for group_name in DAYS_IN_WEEK.keys():
+                if combinations_by_group[group_name]:
+                    group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
+                    dest_df = group_df[group_df['Destination'] == destination]
+                    
+                    if not dest_df.empty:
+                        best = dest_df.sort_values('Total_Price').iloc[0]
+                        destination_results[destination][group_name] = best
+        
+        # Sort by cheapest
+        dest_min_prices = []
+        for destination in destinations:
+            if destination_results[destination]:
+                min_price = min(row['Total_Price'] for row in destination_results[destination].values())
+                dest_min_prices.append((destination, min_price))
+        
+        dest_min_prices.sort(key=lambda x: x[1])
+        
+        for destination, _ in dest_min_prices:
+            with st.expander(f"✈️ {destination}", expanded=False):
+                for group_name in DAYS_IN_WEEK.keys():
+                    if group_name in destination_results[destination]:
+                        best = destination_results[destination][group_name]
+                        dest_url = builder.build_specific_url(
+                            origin=origin,
+                            destination=best['Destination'],
+                            outbound_date=best['Outbound_Date'],
+                            return_date=best['Return_Date'],
+                            outbound_times=outbound_times,
+                            return_times=return_times,
+                            stops=allow_stops
+                        )
+                        
+                        st.markdown(f"""
+                        **{group_name.replace('_', ' ').title()}**  
+                        📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
+                        💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({dest_url})
+                        """)
+                        st.divider()
+        
+        # Best by pattern
+        st.subheader("📆 Best Deals by Pattern")
+        
+        for group_name in DAYS_IN_WEEK.keys():
+            if combinations_by_group[group_name]:
+                with st.expander(f"🗓️ {group_name.replace('_', ' ').title()}", expanded=False):
+                    group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
+                    
+                    # Get best price per destination for this pattern
+                    pattern_results = []
+                    for destination in destinations:
+                        dest_df = group_df[group_df['Destination'] == destination]
+                        if not dest_df.empty:
+                            best = dest_df.sort_values('Total_Price').iloc[0]
+                            pattern_results.append(best)
+                    
+                    # Sort by price
+                    pattern_results = sorted(pattern_results, key=lambda x: x['Total_Price'])
+                    
+                    for best in pattern_results:
+                        pattern_url = builder.build_specific_url(
+                            origin=origin,
+                            destination=best['Destination'],
+                            outbound_date=best['Outbound_Date'],
+                            return_date=best['Return_Date'],
+                            outbound_times=outbound_times,
+                            return_times=return_times,
+                            stops=allow_stops
+                        )
+                        
+                        st.markdown(f"""
+                        **{best['Destination']}**  
+                        📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
+                        💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({pattern_url})
+                        """)
+                        st.divider()
+        
+        # Download — lives outside scraping block so click doesn't reset results
+        if csv_bytes:
+            st.download_button(
+                label="📥 Download Results (CSV)",
+                data=csv_bytes,
+                file_name=f"nodens_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    else:
+        st.warning("😔 No valid combinations found. Try adjusting your search parameters.")
+
+
+# =============================================================================
 # STREAMLIT UI
 # =============================================================================
 
@@ -583,10 +742,11 @@ with st.sidebar:
     st.subheader("📆 Day Patterns")
     
     # Initialize patterns in session state
+    # FIX: Updated default patterns — Thu-Mon and Fri-Mon
     if 'day_patterns' not in st.session_state:
         st.session_state.day_patterns = [
-            {'outbound': 'Fri', 'return': 'Sun'},
-            {'outbound': 'Thu', 'return': 'Mon'}
+            {'outbound': 'Thu', 'return': 'Mon'},
+            {'outbound': 'Fri', 'return': 'Mon'}
         ]
     
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -699,8 +859,6 @@ with st.sidebar:
         )
     
     # Convert to tuple format for Kiwi.com URL
-    # Format: (departure_after, 24, 0, arrival_before)
-    # Meaning: depart after X, anytime in the day (24), from midnight (0), arrive before Y
     outbound_dep_hour = hours.index(outbound_dep_after)
     outbound_arr_hour = hours.index(outbound_arr_before)
     return_dep_hour = hours.index(return_dep_after)
@@ -746,6 +904,10 @@ else:
     
     # Search button
     if st.button("🌊 Navigate the Abyss", type="primary", use_container_width=True):
+        # Clear previous results when starting a new search
+        if 'search_results' in st.session_state:
+            del st.session_state['search_results']
+
         # Prepare data
         all_patterns = []
         for group_name, patterns in DAYS_IN_WEEK.items():
@@ -840,10 +1002,10 @@ else:
                     
                     if not df.empty:
                         df['Destination'] = destination
+                        df['Search_URL'] = url
                         all_destination_data.append(df)
                         scraping_stats['with_data'] += 1
                         
-                        # Simple success message
                         results_container.info(
                             f"{destination}: {len(df)} prices found ({scraping_stats['with_data']}/{scraping_stats['completed']} destinations with data)"
                         )
@@ -862,22 +1024,13 @@ else:
                     continue
             
             driver.quit()
-            
-            # Final message
             status_text.success("🌊 Nodens has brought order to the chaos!")
             
-            st.info(f"""
-            **📊 Scraping Summary:**
-            - ✅ Completed: {scraping_stats['completed']}/{scraping_stats['total']}
-            - 📈 With data: {scraping_stats['with_data']}
-            - ⚠️ Without data: {scraping_stats['without_data']}
-            - ❌ Errors: {scraping_stats['errors']}
-            """)
-            
-            # Analyze combinations
+            # Build combinations
+            combinations_by_group = {group_name: [] for group_name in DAYS_IN_WEEK.keys()}
+            csv_bytes = None
+
             if all_destination_data:
-                combinations_by_group = {group_name: [] for group_name in DAYS_IN_WEEK.keys()}
-                
                 for dest_df in all_destination_data:
                     destination = dest_df['Destination'].iloc[0]
                     
@@ -890,149 +1043,32 @@ else:
                                 combo_df['Group'] = group_name
                                 combinations_by_group[group_name].append(combo_df)
                 
-                # Display results
-                has_results = any(len(combos) > 0 for combos in combinations_by_group.values())
+                # Pre-build CSV bytes so download doesn't trigger re-scrape
+                all_combos = []
+                for group_name, combos in combinations_by_group.items():
+                    if combos:
+                        all_combos.extend(combos)
                 
-                if has_results:
-                    st.success("🎉 Nodens has brought order to the chaos!")
-                    
-                    # Best overall by group
-                    st.subheader("🏆 Best Overall Deals")
-                    
-                    for group_name in DAYS_IN_WEEK.keys():
-                        if combinations_by_group[group_name]:
-                            group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
-                            group_df = group_df.sort_values('Total_Price').reset_index(drop=True)
-                            
-                            best = group_df.iloc[0]
-                            best_url = builder.build_specific_url(
-                                origin=origin,
-                                destination=best['Destination'],
-                                outbound_date=best['Outbound_Date'],
-                                return_date=best['Return_Date'],
-                                outbound_times=outbound_times,
-                                return_times=return_times,
-                                stops=allow_stops
-                            )
-                            
-                            st.markdown(f"""
-                            <div class="result-card">
-                                <h3>✈️ {best['Destination']}</h3>
-                                <p><strong>{group_name.replace('_', ' ').title()}</strong></p>
-                                <p>📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} days)</p>
-                                <p class="price-badge">💰 {best['Total_Price']:.0f} EUR</p>
-                                <p><a href="{best_url}" target="_blank" style="color: #06b6d4; text-decoration: none; font-weight: bold;">🔗 Ver en Kiwi.com</a></p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    # Best by destination
-                    st.subheader("📍 Best Deals by Destination")
-                    
-                    destination_results = {}
-                    for destination in destinations:
-                        destination_results[destination] = {}
-                        
-                        for group_name in DAYS_IN_WEEK.keys():
-                            if combinations_by_group[group_name]:
-                                group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
-                                dest_df = group_df[group_df['Destination'] == destination]
-                                
-                                if not dest_df.empty:
-                                    best = dest_df.sort_values('Total_Price').iloc[0]
-                                    destination_results[destination][group_name] = best
-                    
-                    # Sort by cheapest
-                    dest_min_prices = []
-                    for destination in destinations:
-                        if destination_results[destination]:
-                            min_price = min(row['Total_Price'] for row in destination_results[destination].values())
-                            dest_min_prices.append((destination, min_price))
-                    
-                    dest_min_prices.sort(key=lambda x: x[1])
-                    
-                    for destination, _ in dest_min_prices:
-                        with st.expander(f"✈️ {destination}", expanded=False):
-                            for group_name in DAYS_IN_WEEK.keys():
-                                if group_name in destination_results[destination]:
-                                    best = destination_results[destination][group_name]
-                                    dest_url = builder.build_specific_url(
-                                        origin=origin,
-                                        destination=best['Destination'],
-                                        outbound_date=best['Outbound_Date'],
-                                        return_date=best['Return_Date'],
-                                        outbound_times=outbound_times,
-                                        return_times=return_times,
-                                        stops=allow_stops
-                                    )
-                                    
-                                    st.markdown(f"""
-                                    **{group_name.replace('_', ' ').title()}**  
-                                    📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
-                                    💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({dest_url})
-                                    """)
-                                    st.divider()
-                    
-                    # Best by pattern
-                    st.subheader("📆 Best Deals by Pattern")
-                    
-                    for group_name in DAYS_IN_WEEK.keys():
-                        if combinations_by_group[group_name]:
-                            with st.expander(f"🗓️ {group_name.replace('_', ' ').title()}", expanded=False):
-                                group_df = pd.concat(combinations_by_group[group_name], ignore_index=True)
-                                
-                                # Get best price per destination for this pattern
-                                pattern_results = []
-                                for destination in destinations:
-                                    dest_df = group_df[group_df['Destination'] == destination]
-                                    if not dest_df.empty:
-                                        best = dest_df.sort_values('Total_Price').iloc[0]
-                                        pattern_results.append(best)
-                                
-                                # Sort by price
-                                pattern_results = sorted(pattern_results, key=lambda x: x['Total_Price'])
-                                
-                                # Display each destination's best deal for this pattern
-                                for best in pattern_results:
-                                    pattern_url = builder.build_specific_url(
-                                        origin=origin,
-                                        destination=best['Destination'],
-                                        outbound_date=best['Outbound_Date'],
-                                        return_date=best['Return_Date'],
-                                        outbound_times=outbound_times,
-                                        return_times=return_times,
-                                        stops=allow_stops
-                                    )
-                                    
-                                    st.markdown(f"""
-                                    **{best['Destination']}**  
-                                    📅 {best['Outbound_Date']} → {best['Return_Date']} ({best['Days']} días)  
-                                    💰 **{best['Total_Price']:.0f} EUR** • [🔗 Ver vuelo]({pattern_url})
-                                    """)
-                                    st.divider()
-                    
-                    # Download results
-                    all_combos = []
-                    for group_name, combos in combinations_by_group.items():
-                        if combos:
-                            all_combos.extend(combos)
-                    
-                    if all_combos:
-                        final_df = pd.concat(all_combos, ignore_index=True)
-                        csv = final_df.to_csv(index=False).encode('utf-8')
-                        
-                        st.download_button(
-                            label="📥 Download Results (CSV)",
-                            data=csv,
-                            file_name=f"nodens_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                else:
-                    st.warning("😔 No valid combinations found. Try adjusting your search parameters.")
-            else:
+                if all_combos:
+                    final_df = pd.concat(all_combos, ignore_index=True)
+                    csv_bytes = final_df.to_csv(index=False).encode('utf-8')
+
+            # Store everything in session_state — survives the download-button rerun
+            st.session_state['search_results'] = {
+                'combinations_by_group': combinations_by_group,
+                'DAYS_IN_WEEK': DAYS_IN_WEEK,
+                'destinations': destinations,
+                'origin': origin,
+                'outbound_times': outbound_times,
+                'return_times': return_times,
+                'allow_stops': allow_stops,
+                'scraping_stats': scraping_stats,
+                'csv_bytes': csv_bytes,
+            }
+
+            # Handle case where no data was retrieved at all
+            if not all_destination_data:
                 st.error("❌ No data retrieved from any destination.")
-                
-                # Diagnostic information
                 st.warning("""
                 **🔍 Possible causes:**
                 
@@ -1066,7 +1102,6 @@ else:
                 - Try with just 1-2 destinations first
                 """)
                 
-                # Show what was attempted
                 with st.expander("🔧 Debug Information"):
                     st.code(f"""
 Origin: {origin}
@@ -1104,6 +1139,10 @@ Allow stops: {allow_stops}
                 driver.quit()
             except:
                 pass
+
+    # Render results from session_state (persists across download-button reruns)
+    if 'search_results' in st.session_state:
+        display_results(st.session_state['search_results'])
 
 # Footer
 st.divider()
