@@ -864,8 +864,8 @@ with st.sidebar:
     return_dep_hour = hours.index(return_dep_after)
     return_arr_hour = hours.index(return_arr_before)
     
-    outbound_times = (outbound_dep_hour, 24, 0, outbound_arr_hour)
-    return_times = (return_dep_hour, 24, 0, return_arr_hour)
+    outbound_times = (outbound_dep_hour, 24, 8, outbound_arr_hour)
+    return_times = (return_dep_hour, 24, 8, return_arr_hour)
 
 # Main area
 if not destinations:
