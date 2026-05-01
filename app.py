@@ -313,7 +313,7 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
     # Minimal essential options for server environments
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-
+    
     # Anti-detection: disable automation flags
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -324,7 +324,7 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
 
     # Normal window size
     options.add_argument('--window-size=1920,1080')
-
+    options.add_argument('--incognito')
     # Spanish language preference
     options.add_experimental_option('prefs', {
         'intl.accept_languages': 'es-ES,es;q=0.9,en;q=0.8'
